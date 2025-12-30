@@ -1,0 +1,170 @@
+#include <glad/gl.h>
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <render/shader.h>
+#include "skybox.cpp"  
+#include "terrain.cpp"
+#include "skybox2.cpp"  
+#include <vector>
+#include <iostream>
+#define _USE_MATH_DEFINES
+#include <math.h>
+
+
+static GLFWwindow *window;
+static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mode);
+
+// OpenGL camera view parameters
+static glm::vec3 eye_center;
+static glm::vec3 lookat(0, 0, 0);
+static glm::vec3 up(0, 1, 0);
+
+// View control 
+static float viewAzimuth = 0.f;
+static float viewPolar = 0.f;
+static float viewDistance = 10.0f;
+
+
+int main(void)
+{
+	// Initialise GLFW
+	if (!glfwInit())
+	{
+		std::cerr << "Failed to initialize GLFW." << std::endl;
+		return -1;
+	}
+
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // For MacOS
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+
+// Windowed mode at monitor resolution
+window = glfwCreateWindow(mode->width, mode->height, "Moonlit Forest", NULL, NULL);
+
+
+	if (window == NULL)
+	{
+		std::cerr << "Failed to open a GLFW window." << std::endl;
+		glfwTerminate();
+		return -1;
+	}
+	glfwMakeContextCurrent(window);
+
+	glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
+	glfwSetKeyCallback(window, key_callback);
+
+	int version = gladLoadGL(glfwGetProcAddress);
+	if (version == 0)
+	{
+		std::cerr << "Failed to initialize OpenGL context." << std::endl;
+		return -1;
+	}
+
+	glClearColor(0.2f, 0.2f, 0.25f, 0.0f);
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_CULL_FACE);
+
+	// Initialize skybox
+	Skybox skybox;
+	Skybox2 skybox2;
+    skybox2.initialize("C:/Users/User/Desktop/graphics/final proj/project/sky_18_cubemap_2k/Cubemap_Sky_11-512x512.png");
+	std::vector<std::string> skyboxFaces {
+    "C:/Users/User/Desktop/graphics/final proj/project/sky_18_cubemap_2k/px.png",
+    "C:/Users/User/Desktop/graphics/final proj/project/sky_18_cubemap_2k/nx.png",
+    "C:/Users/User/Desktop/graphics/final proj/project/sky_18_cubemap_2k/py.png",
+    "C:/Users/User/Desktop/graphics/final proj/project/sky_18_cubemap_2k/ny.png",
+    "C:/Users/User/Desktop/graphics/final proj/project/sky_18_cubemap_2k/pz.png",
+    "C:/Users/User/Desktop/graphics/final proj/project/sky_18_cubemap_2k/nz.png"
+};
+	skybox.initialize(skyboxFaces);
+
+Terrain terrain;
+terrain.init(128);
+
+	// Camera setup
+    eye_center.y = viewDistance * cos(viewPolar)+50.0f;
+    eye_center.x = viewDistance * cos(viewAzimuth);
+    eye_center.z = viewDistance * sin(viewAzimuth);
+
+	glm::mat4 viewMatrix, projectionMatrix;
+    glm::float32 FoV = 45;
+	glm::float32 zNear = 0.1f; 
+	glm::float32 zFar = 3000.0f;
+	int width, height;
+glfwGetFramebufferSize(window, &width, &height);
+projectionMatrix = glm::perspective(glm::radians(FoV), (float)width / (float)height, zNear, zFar);
+
+	do
+	{
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		viewMatrix = glm::lookAt(eye_center, lookat, up);
+		//skybox2.render(viewMatrix,projectionMatrix);
+		skybox.render(viewMatrix, projectionMatrix);
+		glm::mat4 vp = projectionMatrix * viewMatrix;
+         glm::mat4 modelMatrix = glm::mat4(1.0f);
+   modelMatrix = glm::translate(modelMatrix, glm::vec3(-32, -10, -32));
+    glm::mat4 mvp = projectionMatrix * viewMatrix * modelMatrix;
+    		terrain.render(mvp);
+		glfwSwapBuffers(window);
+		glfwPollEvents();
+
+	} while (!glfwWindowShouldClose(window));
+
+	// Cleanup
+	skybox.cleanup();
+    terrain.cleanup();
+
+	glfwTerminate();
+	return 0;
+}
+
+// Is called whenever a key is pressed/released via GLFW
+void key_callback(GLFWwindow *window, int key, int scancode, int action, int mode)
+{
+	if (key == GLFW_KEY_R && action == GLFW_PRESS)
+	{
+		viewAzimuth = 0.f;
+		viewPolar = 0.f;
+		eye_center.y = viewDistance * cos(viewPolar);
+		eye_center.x = viewDistance * cos(viewAzimuth);
+		eye_center.z = viewDistance * sin(viewAzimuth);
+		std::cout << "Reset." << std::endl;
+	}
+
+	if (key == GLFW_KEY_UP && (action == GLFW_REPEAT || action == GLFW_PRESS))
+	{
+		viewPolar -= 0.1f;
+		eye_center.y = viewDistance * cos(viewPolar);
+	}
+
+	if (key == GLFW_KEY_DOWN && (action == GLFW_REPEAT || action == GLFW_PRESS))
+	{
+		viewPolar += 0.1f;
+		eye_center.y = viewDistance * cos(viewPolar);
+	}
+
+	if (key == GLFW_KEY_LEFT && (action == GLFW_REPEAT || action == GLFW_PRESS))
+	{
+		viewAzimuth -= 0.1f;
+		eye_center.x = viewDistance * cos(viewAzimuth);
+		eye_center.z = viewDistance * sin(viewAzimuth);
+	}
+
+	if (key == GLFW_KEY_RIGHT && (action == GLFW_REPEAT || action == GLFW_PRESS))
+	{
+		viewAzimuth += 0.1f;
+		eye_center.x = viewDistance * cos(viewAzimuth);
+		eye_center.z = viewDistance * sin(viewAzimuth);
+	}
+
+	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+		glfwSetWindowShouldClose(window, GL_TRUE);
+}
+
+
