@@ -5,7 +5,6 @@
 #include <render/shader.h>
 #include "skybox.cpp"  
 #include "terrain.cpp"
-#include "skybox2.cpp"  
 #include <vector>
 #include <iostream>
 #define _USE_MATH_DEFINES
@@ -71,9 +70,7 @@ window = glfwCreateWindow(mode->width, mode->height, "Moonlit Forest", NULL, NUL
 
 	// Initialize skybox
 	Skybox skybox;
-	Skybox2 skybox2;
-    skybox2.initialize("C:/Users/User/Desktop/graphics/final proj/project/sky_18_cubemap_2k/Cubemap_Sky_11-512x512.png");
-	std::vector<std::string> skyboxFaces {
+		std::vector<std::string> skyboxFaces {
     "C:/Users/User/Desktop/graphics/final proj/project/sky_18_cubemap_2k/px.png",
     "C:/Users/User/Desktop/graphics/final proj/project/sky_18_cubemap_2k/nx.png",
     "C:/Users/User/Desktop/graphics/final proj/project/sky_18_cubemap_2k/py.png",
@@ -110,7 +107,6 @@ projectionMatrix = glm::perspective(glm::radians(FoV), (float)width / (float)hei
          glm::mat4 modelMatrix = glm::mat4(1.0f);
    modelMatrix = glm::translate(modelMatrix, glm::vec3(-32, -10, -32));
     glm::mat4 mvp = projectionMatrix * viewMatrix * modelMatrix;
-    		terrain.render(mvp);
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 
