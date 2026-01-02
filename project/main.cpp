@@ -5,6 +5,7 @@
 #include <render/shader.h>
 #include "skybox.cpp"  
 #include "terrain.cpp"
+#include "model.cpp"
 #include <vector>
 #include <iostream>
 #define _USE_MATH_DEFINES
@@ -83,6 +84,18 @@ window = glfwCreateWindow(mode->width, mode->height, "Moonlit Forest", NULL, NUL
 Terrain terrain;
 terrain.init(128);
 
+GLuint treeShaderID = LoadShadersFromFile(
+    "C:/Users/User/Desktop/graphics/final proj/project/tree.vert",
+    "C:/Users/User/Desktop/graphics/final proj/project/tree.frag"
+);
+
+Model tree;
+tree.init(
+    "C:/Users/User/Desktop/graphics/final proj/project/assets/Elm tree/ElmTree.OBJ",
+    "C:/Users/User/Desktop/graphics/final proj/project/assets/Elm tree/ElmTree_BaseColor.png",
+    treeShaderID
+);
+
 	// Camera setup
     eye_center.y = viewDistance * cos(viewPolar)+50.0f;
     eye_center.x = viewDistance * cos(viewAzimuth);
@@ -101,12 +114,18 @@ projectionMatrix = glm::perspective(glm::radians(FoV), (float)width / (float)hei
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		viewMatrix = glm::lookAt(eye_center, lookat, up);
-		//skybox2.render(viewMatrix,projectionMatrix);
 		skybox.render(viewMatrix, projectionMatrix);
 		glm::mat4 vp = projectionMatrix * viewMatrix;
          glm::mat4 modelMatrix = glm::mat4(1.0f);
    modelMatrix = glm::translate(modelMatrix, glm::vec3(-32, -10, -32));
     glm::mat4 mvp = projectionMatrix * viewMatrix * modelMatrix;
+	terrain.render(mvp);
+
+	glm::mat4 treeModel = glm::mat4(1.0f);
+treeModel = glm::translate(treeModel, glm::vec3(0, -10, 0)); 
+treeModel = glm::scale(treeModel, glm::vec3(0.6f, 0.6f, 0.6f)); 
+glm::mat4 treeMVP = projectionMatrix * viewMatrix * treeModel;
+tree.render(treeMVP);
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 
@@ -120,47 +139,81 @@ projectionMatrix = glm::perspective(glm::radians(FoV), (float)width / (float)hei
 	return 0;
 }
 
-// Is called whenever a key is pressed/released via GLFW
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mode)
 {
 	if (key == GLFW_KEY_R && action == GLFW_PRESS)
 	{
-		viewAzimuth = 0.f;
-		viewPolar = 0.f;
-		eye_center.y = viewDistance * cos(viewPolar);
-		eye_center.x = viewDistance * cos(viewAzimuth);
-		eye_center.z = viewDistance * sin(viewAzimuth);
+		// Reset to initial position
+		eye_center = glm::vec3(0, 40, 50);
+		lookat = glm::vec3(0, 0, 0);
 		std::cout << "Reset." << std::endl;
 	}
 
+	// WASD movement
+	if (key == GLFW_KEY_W && (action == GLFW_REPEAT || action == GLFW_PRESS))
+	{
+		glm::vec3 forward = glm::normalize(lookat - eye_center);
+		eye_center += forward * 2.0f;
+		lookat += forward * 2.0f;
+	}
+
+	if (key == GLFW_KEY_S && (action == GLFW_REPEAT || action == GLFW_PRESS))
+	{
+		glm::vec3 forward = glm::normalize(lookat - eye_center);
+		eye_center -= forward * 2.0f;
+		lookat -= forward * 2.0f;
+	}
+
+	if (key == GLFW_KEY_A && (action == GLFW_REPEAT || action == GLFW_PRESS))
+	{
+		glm::vec3 forward = glm::normalize(lookat - eye_center);
+		glm::vec3 right = glm::normalize(glm::cross(forward, up));
+		eye_center -= right * 2.0f;
+		lookat -= right * 2.0f;
+	}
+
+	if (key == GLFW_KEY_D && (action == GLFW_REPEAT || action == GLFW_PRESS))
+	{
+		glm::vec3 forward = glm::normalize(lookat - eye_center);
+		glm::vec3 right = glm::normalize(glm::cross(forward, up));
+		eye_center += right * 2.0f;
+		lookat += right * 2.0f;
+	}
+
+	// Arrow keys for looking around
 	if (key == GLFW_KEY_UP && (action == GLFW_REPEAT || action == GLFW_PRESS))
 	{
-		viewPolar -= 0.1f;
-		eye_center.y = viewDistance * cos(viewPolar);
+		// Look up
+		glm::vec3 direction = lookat - eye_center;
+		glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), 0.05f, glm::cross(direction, up));
+		lookat = eye_center + glm::vec3(rotation * glm::vec4(direction, 0.0f));
 	}
 
 	if (key == GLFW_KEY_DOWN && (action == GLFW_REPEAT || action == GLFW_PRESS))
 	{
-		viewPolar += 0.1f;
-		eye_center.y = viewDistance * cos(viewPolar);
+		// Look down
+		glm::vec3 direction = lookat - eye_center;
+		glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), -0.05f, glm::cross(direction, up));
+		lookat = eye_center + glm::vec3(rotation * glm::vec4(direction, 0.0f));
 	}
 
 	if (key == GLFW_KEY_LEFT && (action == GLFW_REPEAT || action == GLFW_PRESS))
 	{
-		viewAzimuth -= 0.1f;
-		eye_center.x = viewDistance * cos(viewAzimuth);
-		eye_center.z = viewDistance * sin(viewAzimuth);
+		// Look left
+		glm::vec3 direction = lookat - eye_center;
+		glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), 0.05f, up);
+		lookat = eye_center + glm::vec3(rotation * glm::vec4(direction, 0.0f));
 	}
 
 	if (key == GLFW_KEY_RIGHT && (action == GLFW_REPEAT || action == GLFW_PRESS))
 	{
-		viewAzimuth += 0.1f;
-		eye_center.x = viewDistance * cos(viewAzimuth);
-		eye_center.z = viewDistance * sin(viewAzimuth);
+		// Look right
+		glm::vec3 direction = lookat - eye_center;
+		glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), -0.05f, up);
+		lookat = eye_center + glm::vec3(rotation * glm::vec4(direction, 0.0f));
 	}
 
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, GL_TRUE);
 }
-
 
