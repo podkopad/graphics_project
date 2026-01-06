@@ -81,8 +81,9 @@ window = glfwCreateWindow(mode->width, mode->height, "Moonlit Forest", NULL, NUL
 };
 	skybox.initialize(skyboxFaces);
 
-Terrain terrain;
-terrain.init(128);
+TerrainManager terrainManager;
+terrainManager.init(64,11);
+glClearColor(0.2f, 0.2f, 0.25f, 1.0f);
 
 GLuint treeShaderID = LoadShadersFromFile(
     "C:/Users/User/Desktop/graphics/final proj/project/tree.vert",
@@ -96,10 +97,9 @@ tree.init(
     treeShaderID
 );
 
-	// Camera setup
-    eye_center.y = viewDistance * cos(viewPolar)+50.0f;
-    eye_center.x = viewDistance * cos(viewAzimuth);
-    eye_center.z = viewDistance * sin(viewAzimuth);
+	// Camera setup - positioned behind scene looking forward horizontally
+    eye_center = glm::vec3(0, 5, 50);  // Behind and elevated
+    lookat = glm::vec3(0, 5, 0);        // Looking forward horizontally
 
 	glm::mat4 viewMatrix, projectionMatrix;
     glm::float32 FoV = 45;
@@ -111,21 +111,30 @@ projectionMatrix = glm::perspective(glm::radians(FoV), (float)width / (float)hei
 
 	do
 	{
+// 1. Get the raw noise height at the camera's current X and Z
+// We use chunks[0] because the noise function is the same for all chunks
+float noiseHeight = terrainManager.chunks[0].getHeight(eye_center.x, eye_center.z);
+
+// 2. Adjust for the vertical offset you used in your render function
+// In your terrain.cpp, you translated the model matrix by -10.0f
+float groundY = noiseHeight - 10.0f;
+
+if (eye_center.y < groundY + 2.0f) {
+    eye_center.y = groundY + 2.0f;
+}
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+		terrainManager.update(eye_center);
 		viewMatrix = glm::lookAt(eye_center, lookat, up);
 		skybox.render(viewMatrix, projectionMatrix);
 		glm::mat4 vp = projectionMatrix * viewMatrix;
-         glm::mat4 modelMatrix = glm::mat4(1.0f);
-   modelMatrix = glm::translate(modelMatrix, glm::vec3(-32, -10, -32));
-    glm::mat4 mvp = projectionMatrix * viewMatrix * modelMatrix;
-	terrain.render(mvp);
+	terrainManager.render(viewMatrix, projectionMatrix, eye_center);
+float treeGroundY = terrainManager.chunks[0].getHeight(0, 0) - 10.0f;
 
-	glm::mat4 treeModel = glm::mat4(1.0f);
-treeModel = glm::translate(treeModel, glm::vec3(0, -10, 0)); 
-treeModel = glm::scale(treeModel, glm::vec3(0.6f, 0.6f, 0.6f)); 
-glm::mat4 treeMVP = projectionMatrix * viewMatrix * treeModel;
-tree.render(treeMVP);
+glm::mat4 treeModel = glm::mat4(1.0f);
+// Fixed position at world origin
+treeModel = glm::translate(treeModel, glm::vec3(0, treeGroundY, 0)); 
+tree.render(projectionMatrix * viewMatrix * treeModel);
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 
@@ -133,7 +142,7 @@ tree.render(treeMVP);
 
 	// Cleanup
 	skybox.cleanup();
-    terrain.cleanup();
+    terrainManager.cleanup();
 
 	glfwTerminate();
 	return 0;
@@ -143,10 +152,9 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
 {
 	if (key == GLFW_KEY_R && action == GLFW_PRESS)
 	{
-		// Reset to initial position
-		eye_center = glm::vec3(0, 40, 50);
-		lookat = glm::vec3(0, 0, 0);
-		std::cout << "Reset." << std::endl;
+		// Reset to initial position - looking forward horizontally
+		eye_center = glm::vec3(0, 30, 50);
+		lookat = glm::vec3(0, 10, 0);
 	}
 
 	// WASD movement
