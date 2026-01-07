@@ -10,8 +10,8 @@ void main() {
     float diff = max(dot(normalize(WorldNormal), lightDir), 0.0);
     
     // 2. Base Colors
-    vec3 terrainColor = vec3(0.35, 0.45, 0.25); // Earthy Green
-    vec3 ambient = terrainColor * 0.3;         // Darker shadow areas
+    vec3 terrainColor = vec3(0.12, 0.15, 0.10);
+    vec3 ambient = terrainColor * 0.2;        
     vec3 finalTerrain = terrainColor * diff + ambient;
 
     // 3. Fog Color (Match this to your glClearColor in main.cpp)

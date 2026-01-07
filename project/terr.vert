@@ -19,8 +19,8 @@ void main() {
 
     // Linear Fog calculation
     float distance = length(worldPos.xyz - cameraPos);
-    float fogStart = 20.0;
-    float fogEnd = 350.0;
+    float fogStart = 100.0;
+    float fogEnd = 600.0;
     Visibility = (fogEnd - distance) / (fogEnd - fogStart);
     Visibility = clamp(Visibility, 0.0, 1.0);
 }

@@ -4,6 +4,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
+#define TINYGLTF_IMPLEMENTATION     // Use the implementation from stb_config.cpp
+#define TINYGLTF_NO_STB_IMAGE_WRITE  // Prevents linker errors if not in config
 #include <tiny_gltf.h>
 #include <render/shader.h>
 #include <vector>
@@ -13,13 +15,6 @@
 #include <math.h>
 
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
-
-static GLFWwindow *window;
-static int windowWidth = 1024;
-static int windowHeight = 768;
-
-static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mode);
-
 
 // Lighting  
 static glm::vec3 lightIntensity(5e6f, 5e6f, 5e6f);
@@ -72,6 +67,7 @@ struct Owl {
 	}; 
 	struct AnimationObject {
 		std::vector<SamplerObject> samplers;	// Animation data
+		std::vector<ChannelObject> channels;
 	};
 	std::vector<AnimationObject> animationObjects;
 
@@ -251,9 +247,7 @@ struct Owl {
 						memcpy(&samplerObject.output[i], outputPtr + i * 3 * sizeof(float), 3 * sizeof(float));
 					} else if (outputAccessor.type == TINYGLTF_TYPE_VEC4) {
 						memcpy(&samplerObject.output[i], outputPtr + i * 4 * sizeof(float), 4 * sizeof(float));
-					} else {
-						std::cout << "Unsupport accessor type ..." << std::endl;
-					}
+					} 
 
 				}
 
@@ -272,121 +266,119 @@ struct Owl {
     float time,
     std::vector<glm::mat4> &nodeTransforms) 
 {
-    // There are many channels so we have to accumulate the transforms 
     for (const auto &channel : anim.channels) {
-        
         int targetNodeIndex = channel.target_node;
-        const auto &sampler = anim.samplers[channel.sampler];
         
-        // Access output (value) data for the channel
+        // SAFETY: Prevents the "vector issue" crash
+        if (targetNodeIndex < 0 || targetNodeIndex >= (int)nodeTransforms.size()) continue;
+
+        const auto &sampler = anim.samplers[channel.sampler];
+        const std::vector<float> &times = animationObject.samplers[channel.sampler].input;
+        if (times.empty()) continue;
+
+        float animationTime = fmod(time, times.back());
+        int keyframeIndex = findKeyframeIndex(times, animationTime); 
+
+        // Ensure we don't look past the end of the array
+        if (keyframeIndex >= (int)times.size() - 1) keyframeIndex = (int)times.size() - 2;
+
+        float t = (animationTime - times[keyframeIndex]) / (times[keyframeIndex + 1] - times[keyframeIndex]);
+
         const tinygltf::Accessor &outputAccessor = model.accessors[sampler.output];
         const tinygltf::BufferView &outputBufferView = model.bufferViews[outputAccessor.bufferView];
         const tinygltf::Buffer &outputBuffer = model.buffers[outputBufferView.buffer];
-
-        // Calculate current animation time (wrap if necessary)
-        const std::vector<float> &times = animationObject.samplers[channel.sampler].input;
-        float animationTime = fmod(time, times.back());
-        
-        // ----------------------------------------------------------
-        // TODO: Find a keyframe for getting animation data 
-        // ----------------------------------------------------------
-        int keyframeIndex = findKeyframeIndex(times, animationTime); 
-
         const unsigned char *outputPtr = &outputBuffer.data[outputBufferView.byteOffset + outputAccessor.byteOffset];
-        const float *outputBuf = reinterpret_cast<const float*>(outputPtr);
 
-        // -----------------------------------------------------------
-        // TODO: Add interpolation for smooth animation
-        // -----------------------------------------------------------
+        // START with current matrix data so T, R, and S channels don't fight
+        glm::vec3 translation;
+        glm::quat rotation;
+        glm::vec3 scale;
+
+        glm::mat4 currentMat = nodeTransforms[targetNodeIndex];
+        translation = glm::vec3(currentMat[3]);
+        scale = glm::vec3(
+            glm::length(glm::vec3(currentMat[0])),
+            glm::length(glm::vec3(currentMat[1])),
+            glm::length(glm::vec3(currentMat[2]))
+        );
+        
+        // Safety: Avoid division by zero which causes "not rendering" (NaN)
+        glm::mat3 rotMat = glm::mat3(
+            glm::vec3(currentMat[0]) / (scale.x > 0.001f ? scale.x : 1.0f),
+            glm::vec3(currentMat[1]) / (scale.y > 0.001f ? scale.y : 1.0f),
+            glm::vec3(currentMat[2]) / (scale.z > 0.001f ? scale.z : 1.0f)
+        );
+        rotation = glm::quat_cast(rotMat);
+
         if (channel.target_path == "translation") {
-            glm::vec3 translation0, translation1;
-            memcpy(&translation0, outputPtr + keyframeIndex * 3 * sizeof(float), 3 * sizeof(float));
-            memcpy(&translation1, outputPtr + (keyframeIndex + 1) * 3 * sizeof(float), 3 * sizeof(float));
-            
-            float t = (animationTime - times[keyframeIndex]) / (times[keyframeIndex + 1] - times[keyframeIndex]);
-            glm::vec3 translation = glm::mix(translation0, translation1, t);
-            
-            nodeTransforms[targetNodeIndex] = glm::translate(glm::mat4(1.0f), translation);
-            
-        } else if (channel.target_path == "rotation") {
-            glm::quat rotation0, rotation1;
-            memcpy(&rotation0, outputPtr + keyframeIndex * 4 * sizeof(float), 4 * sizeof(float));
-            memcpy(&rotation1, outputPtr + (keyframeIndex + 1) * 4 * sizeof(float), 4 * sizeof(float));
-            
-            float t = (animationTime - times[keyframeIndex]) / (times[keyframeIndex + 1] - times[keyframeIndex]);
-            glm::quat rotation = glm::slerp(rotation0, rotation1, t);
-            
-            glm::vec3 translation = glm::vec3(nodeTransforms[targetNodeIndex][3]);
-            glm::vec3 scale = glm::vec3(
-                glm::length(glm::vec3(nodeTransforms[targetNodeIndex][0])),
-                glm::length(glm::vec3(nodeTransforms[targetNodeIndex][1])),
-                glm::length(glm::vec3(nodeTransforms[targetNodeIndex][2]))
-            );
-            
-            nodeTransforms[targetNodeIndex] = glm::translate(glm::mat4(1.0f), translation) *
-                                               glm::mat4_cast(rotation) *
-                                               glm::scale(glm::mat4(1.0f), scale);
-            
-        } else if (channel.target_path == "scale") {
-            glm::vec3 scale0, scale1;
-            memcpy(&scale0, outputPtr + keyframeIndex * 3 * sizeof(float), 3 * sizeof(float));
-            memcpy(&scale1, outputPtr + (keyframeIndex + 1) * 3 * sizeof(float), 3 * sizeof(float));
-            
-            float t = (animationTime - times[keyframeIndex]) / (times[keyframeIndex + 1] - times[keyframeIndex]);
-            glm::vec3 scale = glm::mix(scale0, scale1, t);
-            
-            glm::vec3 translation = glm::vec3(nodeTransforms[targetNodeIndex][3]);
-            glm::mat3 rotMat = glm::mat3(nodeTransforms[targetNodeIndex]);
-            glm::quat rotation = glm::quat_cast(rotMat);
-            
-            nodeTransforms[targetNodeIndex] = glm::translate(glm::mat4(1.0f), translation) * glm::mat4_cast(rotation) *glm::scale(glm::mat4(1.0f), scale);
+            glm::vec3 t0, t1;
+            memcpy(&t0, outputPtr + keyframeIndex * 3 * sizeof(float), 3 * sizeof(float));
+            memcpy(&t1, outputPtr + (keyframeIndex + 1) * 3 * sizeof(float), 3 * sizeof(float));
+            translation = glm::mix(t0, t1, t);
+        } 
+        else if (channel.target_path == "rotation") {
+            glm::quat r0, r1;
+            memcpy(&r0, outputPtr + keyframeIndex * 4 * sizeof(float), 4 * sizeof(float));
+            memcpy(&r1, outputPtr + (keyframeIndex + 1) * 4 * sizeof(float), 4 * sizeof(float));
+            rotation = glm::slerp(r0, r1, t);
+        } 
+        else if (channel.target_path == "scale") {
+            glm::vec3 s0, s1;
+            memcpy(&s0, outputPtr + keyframeIndex * 3 * sizeof(float), 3 * sizeof(float));
+            memcpy(&s1, outputPtr + (keyframeIndex + 1) * 3 * sizeof(float), 3 * sizeof(float));
+            scale = glm::mix(s0, s1, t);
+        }
+
+        nodeTransforms[targetNodeIndex] = glm::translate(glm::mat4(1.0f), translation) * glm::mat4_cast(rotation) * glm::scale(glm::mat4(1.0f), scale);
+    }
+}
+
+void updateSkinning(const std::vector<glm::mat4> &nodeTransforms) {
+    if (skinObjects.empty() || model.skins.empty()) return;
+
+    const tinygltf::Skin &skin = model.skins[0];
+    std::vector<glm::mat4> globalTransforms(model.nodes.size(), glm::mat4(1.0f));
+    
+    // Process every root node in the scene to ensure nothing is missed
+    const tinygltf::Scene &scene = model.scenes[model.defaultScene];
+    for (int rootIndex : scene.nodes) {
+        if (rootIndex < 0 || rootIndex >= model.nodes.size()) continue;
+        computeGlobalNodeTransform(model, nodeTransforms, rootIndex, glm::mat4(1.0f), globalTransforms);
+    }
+
+    // Update the matrices actually used by the shader
+    for (size_t j = 0; j < skin.joints.size(); j++) {
+        int nodeIndex = skin.joints[j];
+        if (nodeIndex >= 0 && nodeIndex < globalTransforms.size()) {
+            skinObjects[0].jointMatrices[j] = globalTransforms[nodeIndex] * skinObjects[0].inverseBindMatrices[j];
         }
     }
 }
-
-	void updateSkinning(const std::vector<glm::mat4> &nodeTransforms) {
-
-    // -------------------------------------------------
-    // TODO: Recompute joint matrices 
-    // -------------------------------------------------
-    
-    const tinygltf::Skin &skin = model.skins[0];
-    
-    int skeletonRoot = (skin.skeleton >= 0) ? skin.skeleton : skin.joints[0];
-    
-    std::vector<glm::mat4> globalTransforms(model.nodes.size(), glm::mat4(1.0f));
-    glm::mat4 parentTransform(1.0f);
-    computeGlobalNodeTransform(model, nodeTransforms, skeletonRoot, parentTransform, globalTransforms);
-    
-    for (size_t j = 0; j < skin.joints.size(); ++j) {
-        int nodeIndex = skin.joints[j];
-        skinObjects[0].globalJointTransforms[j] = globalTransforms[nodeIndex];
-        skinObjects[0].jointMatrices[j] = skinObjects[0].globalJointTransforms[j] * skinObjects[0].inverseBindMatrices[j];
-    }
-}
-
 
 void update(float time) {
-    //return;	// Do nothing for T-pose, comment out for animation
+    // 1. Safety Checks: If the model is empty or not loaded, stop.
+    if (model.nodes.empty()) return;
+    if (model.animations.empty() || animationObjects.empty()) return;
+    if (skinObjects.empty()) return;
 
-    if (model.animations.size() > 0) {
-        const tinygltf::Animation &animation = model.animations[0];
-        const AnimationObject &animationObject = animationObjects[0];
-
-        std::vector<glm::mat4> nodeTransforms(model.nodes.size());
-        for (size_t i = 0; i < model.nodes.size(); ++i) {
-            nodeTransforms[i] = getNodeTransform(model.nodes[i]);
-        }
-
-        updateAnimation(model, animation, animationObject, time, nodeTransforms);
-        updateSkinning(nodeTransforms);
+    // 2. Setup local transforms
+    std::vector<glm::mat4> nodeTransforms(model.nodes.size());
+    for (size_t i = 0; i < model.nodes.size(); ++i) {
+        nodeTransforms[i] = getNodeTransform(model.nodes[i]);
     }
-}
 
+    // 3. Apply animation to the local transforms
+    // Note: We use model.animations[0] and animationObjects[0]
+    updateAnimation(model, model.animations[0], animationObjects[0], time, nodeTransforms);
+    
+    // 4. Update the skeleton based on those new transforms
+    updateSkinning(nodeTransforms);
+}
 	bool loadModel(tinygltf::Model &model, const char *filename) {
 		tinygltf::TinyGLTF loader;
 		std::string err;
 		std::string warn;
+		
 
 		bool res = loader.LoadASCIIFromFile(&model, &err, &warn, filename);
 		if (!warn.empty()) {
@@ -407,7 +399,7 @@ void update(float time) {
 
 	void initialize() {
 		// Modify your path if needed
-		if (!loadModel(model, "C:/Users/User/Desctop/comp graphics/lab4/lab4/lab4/model/bot/bot.gltf")) {
+		if (!loadModel(model, "C:/Users/User/Desktop/graphics/final proj/project/owl/owl.gltf")) {
 			return;
 		}
 
@@ -421,7 +413,10 @@ void update(float time) {
 		animationObjects = prepareAnimation(model);
 
 		// Create and compile our GLSL program from the shaders
-		programID = LoadShadersFromFile("C:/Users/User/Documents/comp graphics/lab4/lab4/lab4/shader/bot.vert", "C:/Users/User/Documents/comp graphics/lab4/lab4/lab4/shader/bot.frag");
+		programID = LoadShadersFromFile(
+    "C:/Users/User/Desktop/graphics/final proj/project/owl.vert",
+    "C:/Users/User/Desktop/graphics/final proj/project/owl.frag"
+);
 		if (programID == 0)
 		{
 			std::cerr << "Failed to load shaders." << std::endl;
@@ -494,8 +489,6 @@ void update(float time) {
 					glVertexAttribPointer(vaa, size, accessor.componentType,
 										accessor.normalized ? GL_TRUE : GL_FALSE,
 										byteStride, BUFFER_OFFSET(accessor.byteOffset));
-				} else {
-					std::cout << "vaa missing: " << attrib.first << std::endl;
 				}
 			}
 
@@ -579,161 +572,23 @@ void update(float time) {
 	}
 
 	void render(glm::mat4 cameraMatrix) {
-		glUseProgram(programID);
-		
-		// Set camera
-		glm::mat4 mvp = cameraMatrix;
-		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
+    // If the model didn't load, don't try to render
+    if (primitiveObjects.empty()) return;
 
-		// -----------------------------------------------------------------
-		// TODO: Set animation data for linear blend skinning in shader
-		// -----------------------------------------------------------------
+    glUseProgram(programID);
+    
+    glm::mat4 mvp = cameraMatrix;
+    glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
 
-		glUniformMatrix4fv(jointMatricesID, skinObjects[0].jointMatrices.size(), 
+    // SAFETY CHECK: Only set uniforms if skinObjects actually has data
+    if (!skinObjects.empty() && !skinObjects[0].jointMatrices.empty()) {
+        glUniformMatrix4fv(jointMatricesID, (GLsizei)skinObjects[0].jointMatrices.size(), 
                    GL_FALSE, glm::value_ptr(skinObjects[0].jointMatrices[0]));
+    }
 
-		// -----------------------------------------------------------------
+    glUniform3fv(lightPositionID, 1, &lightPosition[0]);
+    glUniform3fv(lightIntensityID, 1, &lightIntensity[0]);
 
-		// Set light data 
-		glUniform3fv(lightPositionID, 1, &lightPosition[0]);
-		glUniform3fv(lightIntensityID, 1, &lightIntensity[0]);
-
-		// Draw the GLTF model
-		drawModel(primitiveObjects, model);
-	}
-
-	void cleanup() {
-		glDeleteProgram(programID);
-	}
+    drawModel(primitiveObjects, model);
+}
 }; 
-
-int main(void)
-{
-	// Initialise GLFW
-	if (!glfwInit())
-	{
-		std::cerr << "Failed to initialize GLFW." << std::endl;
-		return -1;
-	}
-
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // For MacOS
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-	// Open a window and create its OpenGL context
-	window = glfwCreateWindow(windowWidth, windowHeight, "Lab 4", NULL, NULL);
-	if (window == NULL)
-	{
-		std::cerr << "Failed to open a GLFW window." << std::endl;
-		glfwTerminate();
-		return -1;
-	}
-	glfwMakeContextCurrent(window);
-
-	// Ensure we can capture the escape key being pressed below
-	glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
-	glfwSetKeyCallback(window, key_callback);
-
-	// Load OpenGL functions, gladLoadGL returns the loaded version, 0 on error.
-	int version = gladLoadGL(glfwGetProcAddress);
-	if (version == 0)
-	{
-		std::cerr << "Failed to initialize OpenGL context." << std::endl;
-		return -1;
-	}
-
-	// Background
-	glClearColor(0.2f, 0.2f, 0.25f, 0.0f);
-
-	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_CULL_FACE);
-
-	// Our 3D character
-	MyBot bot;
-	bot.initialize();
-
-	// Camera setup
-    glm::mat4 viewMatrix, projectionMatrix;
-	projectionMatrix = glm::perspective(glm::radians(FoV), (float)windowWidth / windowHeight, zNear, zFar);
-
-	// Time and frame rate tracking
-	static double lastTime = glfwGetTime();
-	float time = 0.0f;			// Animation time 
-	float fTime = 0.0f;			// Time for measuring fps
-	unsigned long frames = 0;
-
-	// Main loop
-	do
-	{
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-		// Update states for animation
-        double currentTime = glfwGetTime();
-        float deltaTime = float(currentTime - lastTime);
-		lastTime = currentTime;
-
-		if (playAnimation) {
-			time += deltaTime * playbackSpeed;
-			bot.update(time);
-		}
-
-		// Rendering
-		viewMatrix = glm::lookAt(eye_center, lookat, up);
-		glm::mat4 vp = projectionMatrix * viewMatrix;
-		bot.render(vp);
-
-		// FPS tracking 
-		// Count number of frames over a few seconds and take average
-		frames++;
-		fTime += deltaTime;
-		if (fTime > 2.0f) {		
-			float fps = frames / fTime;
-			frames = 0;
-			fTime = 0;
-			
-			std::stringstream stream;
-			stream << std::fixed << std::setprecision(2) << "Lab 4 | Frames per second (FPS): " << fps;
-			glfwSetWindowTitle(window, stream.str().c_str());
-		}
-
-		// Swap buffers
-		glfwSwapBuffers(window);
-		glfwPollEvents();
-
-	} // Check if the ESC key was pressed or the window was closed
-	while (!glfwWindowShouldClose(window));
-
-	// Clean up
-	bot.cleanup();
-
-	// Close OpenGL window and terminate GLFW
-	glfwTerminate();
-
-	return 0;
-}
-
-static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mode)
-{
-	if (key == GLFW_KEY_UP && action == GLFW_PRESS)
-	{
-		playbackSpeed += 1.0f;
-		if (playbackSpeed > 10.0f) 
-			playbackSpeed = 10.0f;
-	}
-
-	if (key == GLFW_KEY_DOWN && action == GLFW_PRESS)
-	{
-		playbackSpeed -= 1.0f;
-		if (playbackSpeed < 1.0f) {
-			playbackSpeed = 1.0f;
-		}
-	}
-
-	if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
-		playAnimation = !playAnimation;
-	}
-
-	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-		glfwSetWindowShouldClose(window, GL_TRUE);
-}
