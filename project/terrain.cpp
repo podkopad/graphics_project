@@ -132,6 +132,7 @@ public:
         );
 
         
+        
         mvpLoc = glGetUniformLocation(programID, "MVP");
         modelLoc = glGetUniformLocation(programID, "Model");
         camPosLoc = glGetUniformLocation(programID, "cameraPos");

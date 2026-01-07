@@ -4,11 +4,11 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <render/shader.h>
 
-// IMPORTANT: Reordered includes to fix "incomplete type" error
 #include "skybox.cpp"  
 #include "terrain.cpp" // Terrain must come BEFORE forest
 #include "model.cpp"
 #include "forest.cpp"  // Forest can now see TerrainManager
+#include "glowing_orbs.cpp"
 
 #include <vector>
 #include <iostream>
@@ -26,8 +26,8 @@ static glm::vec3 up(0, 1, 0);
 static glm::vec3 moonDirection = glm::normalize(glm::vec3(0.5f, 1.0f, -0.5f));
 
 glm::vec3 moonDir = glm::normalize(glm::vec3(0.5f, 1.0f, -0.5f)); // High in the sky
-//glm::vec3 moonColor = glm::vec3(0.8f, 0.8f, 1.0f);               // Pale moonlight
-glm::vec3 moonColor = glm::vec3(1.0f, 0.0f, 0.0f);
+glm::vec3 moonColor = glm::vec3(0.8f, 0.8f, 1.0f);               // Pale moonlight
+//glm::vec3 moonColor = glm::vec3(1.0f, 0.0f, 0.0f);
 glm::vec3 nightAmbient = glm::vec3(0.1f, 0.1f, 0.2f);            // Deep blue shadows
 
 int main(void) {
@@ -55,7 +55,7 @@ int main(void) {
     skybox.initialize(skyboxFaces);
 
     TerrainManager terrainManager;
-    terrainManager.init(64, 11);
+    terrainManager.init(128, 11);
 
     // CREATE FOREST INSTANCE HERE 
     Forest forest; 
@@ -72,6 +72,17 @@ int main(void) {
     Model tree2;
     tree2.init("C:/Users/User/Desktop/graphics/final proj/project/assets/Bubinga/BubingaTree.OBJ", "C:/Users/User/Desktop/graphics/final proj/project/assets/Bubinga/BubingaTree_BaseColor.png", treeShaderID);
 
+	GLuint orbShaderID = LoadShadersFromFile(
+    "C:/Users/User/Desktop/graphics/final proj/project/orb.vert",
+    "C:/Users/User/Desktop/graphics/final proj/project/orb.frag"
+);
+
+OrbSystem orbs;
+orbs.init();
+orbs.regenerateForVisibleChunks(terrainManager);
+
+// Track time for animation
+float lastTime = glfwGetTime();
     eye_center = glm::vec3(0, 5, 50);
     lookat = glm::vec3(0, 5, 0);
 
@@ -119,12 +130,14 @@ moonDir = glm::normalize(moonPosition);
         terrainManager.update(eye_center);
         viewMatrix = glm::lookAt(eye_center, lookat, up);
 
+orbs.update(glfwGetTime());
         // Update Forest when moving to new chunks 
         static glm::vec2 lastPos(-9999);
         if (glm::distance(glm::vec2(eye_center.x, eye_center.z), lastPos) > 10.0f) {
             forest.regenerateForVisibleChunks(terrainManager);
             forest.setupInstancedRendering(tree1.VAO); // Link instance data to tree 1 
-            forest.setupInstancedRendering(tree2.VAO); // Link instance data to tree 2 
+            forest.setupInstancedRendering(tree2.VAO); // Link instance data to tree 2
+			orbs.regenerateForVisibleChunks(terrainManager);  
             lastPos = glm::vec2(eye_center.x, eye_center.z);
         }
 
@@ -162,7 +175,7 @@ glUniform3fv(glGetUniformLocation(treeShaderID, "ambientColor"), 1, &nightAmbien
         glBindTexture(GL_TEXTURE_2D, tree2.textureID);
         glBindVertexArray(tree2.VAO);
         glDrawArraysInstanced(GL_TRIANGLES, 0, tree2.vertexCount, (GLsizei)forest.trees.size());
-
+		orbs.render(orbShaderID, viewMatrix, projectionMatrix);
         glBindVertexArray(0);
         glfwSwapBuffers(window);
         glfwPollEvents();
