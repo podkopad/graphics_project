@@ -130,6 +130,8 @@ public:
             "C:/Users/User/Desktop/graphics/final proj/project/terr.vert",
             "C:/Users/User/Desktop/graphics/final proj/project/terr.frag"
         );
+
+        
         mvpLoc = glGetUniformLocation(programID, "MVP");
         modelLoc = glGetUniformLocation(programID, "Model");
         camPosLoc = glGetUniformLocation(programID, "cameraPos");

@@ -50,8 +50,8 @@ struct Model {
                 
                 // Texture coords (if available)
                 if (index.texcoord_index >= 0) {
-                    vertices.push_back(attrib.texcoords[2 * index.texcoord_index + 0]);
-                    vertices.push_back(attrib.texcoords[2 * index.texcoord_index + 1]);
+    vertices.push_back(attrib.texcoords[2 * index.texcoord_index + 0]);
+    vertices.push_back(1.0f - attrib.texcoords[2 * index.texcoord_index + 1]);
                 } else {
                     vertices.push_back(0.0f);
                     vertices.push_back(0.0f);

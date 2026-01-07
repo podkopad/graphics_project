@@ -6,11 +6,22 @@ in vec3 Normal;
 out vec4 color;
 
 uniform sampler2D textureSampler;
+uniform vec3 lightDir;      // Direction from the moon
+uniform vec3 lightColor;    // Pale blue/white for the moon
+uniform vec3 ambientColor;  // Dark blue/black for night shadows
 
 void main() {
-    vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-    float diff = max(dot(normalize(Normal), lightDir), 0.3);
+    vec3 n = normalize(Normal);
+    vec3 l = normalize(lightDir);
     
+    // Diffuse lighting
+    float diff = max(dot(n, l), 0.0);
+    
+    // Final color calculation
     vec4 texColor = texture(textureSampler, UV);
-    color = vec4(texColor.rgb * diff, texColor.a);
+    
+    // Apply moon light + ambient night light
+    vec3 finalRGB = texColor.rgb * (diff * lightColor + ambientColor);
+    
+    color = vec4(finalRGB, texColor.a);
 }
